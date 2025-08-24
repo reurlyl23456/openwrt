@@ -18,28 +18,62 @@ jobs:
           ref: main
           path: openwrt
 
-      - name: Set up CCACHE
-        run: |
-          sudo apt-get install -y ccache
-          export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
-          export PATH="/usr/lib/ccache:$PATH"
-
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex g++ gawk gcc-multilib gettext \
-            git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev
+            git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev ccache
 
-      - name: Prepare OpenWrt build environment
+      - name: Create custom .config
         run: |
+          cat <<EOF > openwrt/.config
+          CONFIG_TARGET_ipq50xx=y
+          CONFIG_TARGET_ipq50xx_DEVICE_redmi_ax3000=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          CONFIG_LUCI_LANG_zh_Hans=y
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_passwall=y
+          CONFIG_PACKAGE_ipset=y
+          CONFIG_PACKAGE_ip-full=y
+          CONFIG_PACKAGE_iptables-mod-tproxy=y
+          CONFIG_PACKAGE_kmod-ipt-nat6=y
+          CONFIG_PACKAGE_xray-core=y
+          CONFIG_PACKAGE_trojan-plus=y
+          CONFIG_PACKAGE_hysteria=y
+          CONFIG_PACKAGE_dnsmasq-full=y
+          CONFIG_PACKAGE_luci-app-smartdns=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_wget=y
+          CONFIG_PACKAGE_iperf3=y
+          CONFIG_PACKAGE_tcpdump=y
+          CONFIG_PACKAGE_nmap=y
+          CONFIG_TARGET_KERNEL_COMPRESS_XZ=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          CONFIG_TARGET_UBI_IMAGES=y
+          CONFIG_TARGET_IMAGES_GZIP=y
+          CONFIG_TARGET_IMAGES_PAD=y
+          CONFIG_TARGET_KERNEL_PARTSIZE=64
+          CONFIG_TARGET_ROOTFS_PARTSIZE=256
+          CONFIG_TARGET_ROOTFS_EXT4=y
+          CONFIG_PACKAGE_block-mount=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-usb-core=y
+          CONFIG_PACKAGE_kmod-usb-storage=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          CONFIG_PACKAGE_kmod-nls-cp437=y
+          CONFIG_PACKAGE_kmod-nls-utf8=y
+          CONFIG_PACKAGE_kmod-fs-exfat=y
+          CONFIG_PACKAGE_kmod-fs-ntfs=y
+          CONFIG_PACKAGE_parted=y
+          CONFIG_BUSYBOX_CUSTOM=y
+          CONFIG_BUSYBOX_DEFAULT_FEATURES=y
+          CONFIG_BUSYBOX_CONFIG_FEATURE_WGET=y
+          EOF
+
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: Apply custom configuration
-        run: |
-          cp .config openwrt/.config
-          cd openwrt
           make defconfig
 
       - name: Build firmware
