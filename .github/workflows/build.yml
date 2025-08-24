@@ -1,0 +1,65 @@
+name: Build Redmi AX3000 Firmware
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout OpenWrt repository
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: main
+          path: openwrt
+
+      - name: Set up CCACHE
+        run: |
+          sudo apt-get install -y ccache
+          export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
+          export PATH="/usr/lib/ccache:$PATH"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex g++ gawk gcc-multilib gettext \
+            git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev
+
+      - name: Prepare OpenWrt build environment
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Apply custom configuration
+        run: |
+          cp .config openwrt/.config
+          cd openwrt
+          make defconfig
+
+      - name: Build firmware
+        run: |
+          cd openwrt
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Find firmware file
+        id: find_firmware
+        run: |
+          FILE=$(find openwrt/bin/targets/ -type f -name '*squashfs-factory.ubi' | head -n 1)
+          if [ -z "$FILE" ]; then
+            echo "❌ No firmware found!"
+            exit 1
+          fi
+          echo "✅ Found firmware: $FILE"
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: redmi-ax3000-firmware
+          path: ${{ steps.find_firmware.outputs.file }}
