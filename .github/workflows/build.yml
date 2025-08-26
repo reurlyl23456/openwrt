@@ -1,99 +1,98 @@
 name: Build Redmi AX3000 Firmware
 
 on:
-  workflow_dispatch:
-  push:
+  workflow_dispatch:   # 手动触发
+  push:                # 推送时触发
     branches:
-      - main
+      - master
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout OpenWrt repository
-        uses: actions/checkout@v4
-        with:
-          repository: openwrt/openwrt
-          ref: main
-          path: openwrt
+    - name: Checkout OpenWrt source
+      uses: actions/checkout@v4
+      with:
+        repository: openwrt/openwrt
+        ref: master
+        path: openwrt
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential clang flex g++ gawk gcc-multilib gettext \
-            git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev ccache
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential clang flex g++ gawk gcc-multilib \
+          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev
 
-      - name: Create custom .config
-        run: |
-          cat <<EOF > openwrt/.config
-          CONFIG_TARGET_ipq50xx=y
-          CONFIG_TARGET_ipq50xx_DEVICE_redmi_ax3000=y
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl=y
-          CONFIG_LUCI_LANG_zh_Hans=y
-          CONFIG_PACKAGE_luci-app-passwall=y
-          CONFIG_PACKAGE_passwall=y
-          CONFIG_PACKAGE_ipset=y
-          CONFIG_PACKAGE_ip-full=y
-          CONFIG_PACKAGE_iptables-mod-tproxy=y
-          CONFIG_PACKAGE_kmod-ipt-nat6=y
-          CONFIG_PACKAGE_xray-core=y
-          CONFIG_PACKAGE_trojan-plus=y
-          CONFIG_PACKAGE_hysteria=y
-          CONFIG_PACKAGE_dnsmasq-full=y
-          CONFIG_PACKAGE_luci-app-smartdns=y
-          CONFIG_PACKAGE_curl=y
-          CONFIG_PACKAGE_wget=y
-          CONFIG_PACKAGE_iperf3=y
-          CONFIG_PACKAGE_tcpdump=y
-          CONFIG_PACKAGE_nmap=y
-          CONFIG_TARGET_KERNEL_COMPRESS_XZ=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          CONFIG_TARGET_UBI_IMAGES=y
-          CONFIG_TARGET_IMAGES_GZIP=y
-          CONFIG_TARGET_IMAGES_PAD=y
-          CONFIG_TARGET_KERNEL_PARTSIZE=64
-          CONFIG_TARGET_ROOTFS_PARTSIZE=256
-          CONFIG_TARGET_ROOTFS_EXT4=y
-          CONFIG_PACKAGE_block-mount=y
-          CONFIG_PACKAGE_kmod-fs-ext4=y
-          CONFIG_PACKAGE_kmod-usb-core=y
-          CONFIG_PACKAGE_kmod-usb-storage=y
-          CONFIG_PACKAGE_kmod-fs-vfat=y
-          CONFIG_PACKAGE_kmod-nls-cp437=y
-          CONFIG_PACKAGE_kmod-nls-utf8=y
-          CONFIG_PACKAGE_kmod-fs-exfat=y
-          CONFIG_PACKAGE_kmod-fs-ntfs=y
-          CONFIG_PACKAGE_parted=y
-          CONFIG_BUSYBOX_CUSTOM=y
-          CONFIG_BUSYBOX_DEFAULT_FEATURES=y
-          CONFIG_BUSYBOX_CONFIG_FEATURE_WGET=y
-          EOF
+    - name: Generate custom .config
+      run: |
+        cat << "EOF" > openwrt/.config
+        CONFIG_TARGET_ipq50xx=y
+        CONFIG_TARGET_ipq50xx_DEVICE_redmi_ax3000=y
+        CONFIG_TARGET_ROOTFS_SQUASHFS=y
+        CONFIG_TARGET_UBI_IMAGES=y
+        CONFIG_TARGET_IMAGES_GZIP=y
+        CONFIG_TARGET_KERNEL_PARTSIZE=64
+        CONFIG_TARGET_ROOTFS_PARTSIZE=256
 
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          make defconfig
+        # LuCI
+        CONFIG_PACKAGE_luci=y
+        CONFIG_PACKAGE_luci-ssl=y
+        CONFIG_LUCI_LANG_zh_Hans=y
 
-      - name: Build firmware
-        run: |
-          cd openwrt
-          make -j$(nproc) || make -j1 V=s
+        # PassWall
+        CONFIG_PACKAGE_luci-app-passwall=y
+        CONFIG_PACKAGE_xray-core=y
+        CONFIG_PACKAGE_trojan-plus=y
+        CONFIG_PACKAGE_hysteria=y
 
-      - name: Find firmware
-        id: find_firmware
-        run: |
-          FILE=$(find openwrt/bin/targets/ -type f -name '*squashfs-factory.ubi' | head -n 1)
-          if [ -z "$FILE" ]; then
-            echo "❌ No firmware found!"
-            exit 1
-          fi
-          echo "✅ Found firmware: $FILE"
-          echo "file=$FILE" >> $GITHUB_OUTPUT
+        # DNS
+        CONFIG_PACKAGE_dnsmasq-full=y
+        CONFIG_PACKAGE_luci-app-smartdns=y
 
-      - name: Upload firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: redmi-ax3000-firmware
-          path: ${{ steps.find_firmware.outputs.file }}
+        # Tools
+        CONFIG_PACKAGE_curl=y
+        CONFIG_PACKAGE_wget=y
+        CONFIG_PACKAGE_iperf3=y
+        EOF
+
+    - name: Update and install feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Make defconfig
+      run: |
+        cd openwrt
+        make defconfig
+
+    - name: Download sources
+      run: |
+        cd openwrt
+        make -j$(nproc) download
+
+    - name: Build firmware
+      run: |
+        cd openwrt
+        make -j$(nproc) V=s
+
+    - name: Find AX3000 factory.ubi
+      id: find
+      run: |
+        FILE=$(find openwrt/bin/targets/ -type f -name '*redmi-ax3000*squashfs-factory.ubi' | head -n 1)
+        if [ -z "$FILE" ]; then
+          echo "❌ No AX3000 squashfs-factory.ubi firmware found!"
+          echo "ℹ️ Available files:"
+          find openwrt/bin/targets/ -type f
+          exit 1
+        fi
+        echo "✅ Found firmware: $FILE"
+        echo "file=$FILE" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: ax3000-factory-ubi
+        path: ${{ steps.find.outputs.file }}
