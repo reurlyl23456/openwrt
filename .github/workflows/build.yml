@@ -1,98 +1,78 @@
-name: Build Redmi AX3000 Firmware
+name: Build OpenWrt for Redmi AX3000
 
 on:
-  workflow_dispatch:   # 手动触发
-  push:                # 推送时触发
-    branches:
-      - master
+  push:
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout OpenWrt source
-      uses: actions/checkout@v4
-      with:
-        repository: openwrt/openwrt
-        ref: master
-        path: openwrt
-        token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout your repo (包含 .config)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y build-essential clang flex g++ gawk gcc-multilib \
-          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev
+      - name: Checkout OpenWrt 源码
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: master
+          path: openwrt
+          fetch-depth: 1
 
-    - name: Generate custom .config
-      run: |
-        cat << "EOF" > openwrt/.config
-        CONFIG_TARGET_ipq50xx=y
-        CONFIG_TARGET_ipq50xx_DEVICE_redmi_ax3000=y
-        CONFIG_TARGET_ROOTFS_SQUASHFS=y
-        CONFIG_TARGET_UBI_IMAGES=y
-        CONFIG_TARGET_IMAGES_GZIP=y
-        CONFIG_TARGET_KERNEL_PARTSIZE=64
-        CONFIG_TARGET_ROOTFS_PARTSIZE=256
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext \
+            libssl-dev xsltproc rsync wget unzip python3 ccache
 
-        # LuCI
-        CONFIG_PACKAGE_luci=y
-        CONFIG_PACKAGE_luci-ssl=y
-        CONFIG_LUCI_LANG_zh_Hans=y
+      - name: Cache downloads
+        uses: actions/cache@v3
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-openwrt-dl-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-dl-
 
-        # PassWall
-        CONFIG_PACKAGE_luci-app-passwall=y
-        CONFIG_PACKAGE_xray-core=y
-        CONFIG_PACKAGE_trojan-plus=y
-        CONFIG_PACKAGE_hysteria=y
+      - name: Cache ccache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-openwrt-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-ccache-
 
-        # DNS
-        CONFIG_PACKAGE_dnsmasq-full=y
-        CONFIG_PACKAGE_luci-app-smartdns=y
+      - name: Apply custom configuration
+        run: |
+          cp .config openwrt/.config
+          cd openwrt
+          make defconfig
 
-        # Tools
-        CONFIG_PACKAGE_curl=y
-        CONFIG_PACKAGE_wget=y
-        CONFIG_PACKAGE_iperf3=y
-        EOF
+      - name: Build OpenWrt
+        run: |
+          cd openwrt
+          echo "Using $(nproc) threads"
+          make -j$(nproc) || make -j1 V=s
 
-    - name: Update and install feeds
-      run: |
-        cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      - name: Find AX3000 factory.ubi
+        run: |
+          cd openwrt
+          FILE=$(find bin/targets/ -type f -name '*redmi-ax3000*squashfs-factory.ubi' | head -n 1)
+          if [ -z "$FILE" ]; then
+            echo "❌ No AX3000 squashfs-factory.ubi firmware found!"
+            echo "ℹ️ Available files:"
+            find bin/targets/ -type f
+            exit 1
+          fi
+          echo "✅ Found firmware: $FILE"
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+        id: find
 
-    - name: Make defconfig
-      run: |
-        cd openwrt
-        make defconfig
-
-    - name: Download sources
-      run: |
-        cd openwrt
-        make -j$(nproc) download
-
-    - name: Build firmware
-      run: |
-        cd openwrt
-        make -j$(nproc) V=s
-
-    - name: Find AX3000 factory.ubi
-      id: find
-      run: |
-        FILE=$(find openwrt/bin/targets/ -type f -name '*redmi-ax3000*squashfs-factory.ubi' | head -n 1)
-        if [ -z "$FILE" ]; then
-          echo "❌ No AX3000 squashfs-factory.ubi firmware found!"
-          echo "ℹ️ Available files:"
-          find openwrt/bin/targets/ -type f
-          exit 1
-        fi
-        echo "✅ Found firmware: $FILE"
-        echo "file=$FILE" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware
-      uses: actions/upload-artifact@v4
-      with:
-        name: ax3000-factory-ubi
-        path: ${{ steps.find.outputs.file }}
+      - name: Upload AX3000 firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: ax3000-factory-ubi
+          path: ${{ steps.find.outputs.file }}
