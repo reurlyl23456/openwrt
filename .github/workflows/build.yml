@@ -2,11 +2,6 @@ name: Build OpenWrt Redmi AX3000
 
 on:
   workflow_dispatch:
-    inputs:
-      hw_version:
-        description: 'AX3000 hardware version (V1 or V2)'
-        required: true
-        default: 'V1'
   push:
     branches:
       - main
@@ -39,31 +34,15 @@ jobs:
       run: |
         cd openwrt
         git clone https://github.com/hzyitc/openwrt-redmi-ax3000 device_patch
-
-        # 复制 package
-        if [ -d "device_patch/package" ]; then
-          cp -r device_patch/package/* ./package/
-          echo "✅ Packages copied."
-        else
-          echo "⚠️ No package folder found."
-        fi
-
-        # 根据硬件版本应用 patch
-        HW_VERSION="${{ github.event.inputs.hw_version }}"
-        PATCH_DIR="device_patch/patches/$HW_VERSION"
-        if [ -d "$PATCH_DIR" ]; then
-          for p in "$PATCH_DIR"/*.patch; do
-            git apply "$p" && echo "✅ Applied patch $p" || echo "❌ Failed patch $p"
-          done
-          echo "✅ All patches for $HW_VERSION applied."
-        else
-          echo "⚠️ No patch folder for $HW_VERSION found."
-        fi
+        cp -r device_patch/target/linux/ipq60xx ./target/linux/
+        cp -r device_patch/package/* ./package/ || true
 
     - name: Apply custom configuration
       run: |
         cp workflow/.config openwrt/.config
         cd openwrt
+        # 移除有问题的 gpio-button-hotplug
+        sed -i '/gpio-button-hotplug/d' .config
         make defconfig
 
     - name: Download sources
